@@ -1,0 +1,595 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
+
+public class Game : MonoBehaviour
+{
+    public GameObject MainPanel;
+    public GameObject SudokuFieldPanel;
+    public GameObject FieldPrefab;
+    public GameObject ControlPanel;
+    public GameObject ControlPrefab;
+    public GameObject GameOverPanel;
+    public GameObject GameOverLostPanel;
+    public GameObject Continue;
+    public GameObject Wall;
+
+    public Button InformationButton;
+    public Button BackButton;
+
+    // Start is called before the first frame update
+    void Start()
+    {
+        CreateFieldPrefabs();
+        CreateControlPrefabs();
+        CreateSudokuObject();
+        GameOverPanel.SetActive(false);
+        GameOverLostPanel.SetActive(false);
+        Wall.SetActive(false);
+        Continue.SetActive(false);
+    }
+
+    public void ClickOn_Erase()
+    {
+        if (_currentHoveredFieldPrefab != null && _currentHoveredFieldPrefab.IsChangeAble)
+        {
+            _currentHoveredFieldPrefab.ClearNumber();
+        }
+    }
+
+    public void ClickOn_Solution()
+    {
+        for (int row = 0; row < 9; row++)
+        {
+            for (int column = 0; column < 9; column++)
+            {
+                FieldPrefabObject fieldObject = _FieldPrefabObjectDic[new Tuple<int, int>(row, column)];
+                fieldObject.SetNumber(_finalObject.Values[row, column]);
+                fieldObject.IsChangeAble = false;
+                fieldObject.ChangeTextToBlack();
+            }
+        }
+        CheckGameOver();
+    }
+
+    public void ClickOn_StepByStep()
+    {
+        bool cellUpdated = false;
+
+        // 1. Применить стратегию "явное одиночное"
+        cellUpdated = ApplyNakedSingleStrategy();
+
+        // 2. Если ни одна ячейка не обновилась, применить другую базовую стратегию (например, "скрытое одиночное")
+        if (!cellUpdated)
+        {
+            cellUpdated = ApplyHiddenSingleStrategy();
+        }
+
+        // Если ячейка была обновлена, проверить, закончилась ли игра
+        if (cellUpdated)
+        {
+            CheckGameOver();
+        }
+    }
+
+    private bool ApplyNakedSingleStrategy()
+    {
+        for (int row = 0; row < 9; row++)
+        {
+            for (int column = 0; column < 9; column++)
+            {
+                FieldPrefabObject fieldObject = _FieldPrefabObjectDic[new Tuple<int, int>(row, column)];
+
+                if (fieldObject.IsChangeAble && fieldObject.Number == 0)
+                {
+                    var possibleNumbers = GetPossibleNumbers(row, column);
+
+                    if (possibleNumbers.Count == 1)
+                    {
+                        fieldObject.SetNumber(possibleNumbers[0]);
+                        fieldObject.IsChangeAble = false;
+                        fieldObject.ChangeTextToBlack();
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private bool ApplyHiddenSingleStrategy()
+    {
+        for (int row = 0; row < 9; row++)
+        {
+            for (int column = 0; column < 9; column++)
+            {
+                FieldPrefabObject fieldObject = _FieldPrefabObjectDic[new Tuple<int, int>(row, column)];
+
+                if (fieldObject.IsChangeAble && fieldObject.Number == 0)
+                {
+                    var possibleNumbers = GetPossibleNumbers(row, column);
+
+                    foreach (var number in possibleNumbers)
+                    {
+                        if (IsHiddenSingle(row, column, number))
+                        {
+                            fieldObject.SetNumber(number);
+                            fieldObject.IsChangeAble = false;
+                            fieldObject.ChangeTextToBlack();
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private List<int> GetPossibleNumbers(int row, int column)
+    {
+        bool[] possible = new bool[10]; // индекс 0 не используется
+        Array.Fill(possible, true);
+
+        for (int i = 0; i < 9; i++)
+        {
+            // Проверка строки
+            int number = _FieldPrefabObjectDic[new Tuple<int, int>(row, i)].Number;
+            if (number != 0) possible[number] = false;
+
+            // Проверка столбца
+            number = _FieldPrefabObjectDic[new Tuple<int, int>(i, column)].Number;
+            if (number != 0) possible[number] = false;
+
+            // Проверка блока 3x3
+            int startRow = (row / 3) * 3;
+            int startCol = (column / 3) * 3;
+            number = _FieldPrefabObjectDic[new Tuple<int, int>(startRow + (i / 3), startCol + (i % 3))].Number;
+            if (number != 0) possible[number] = false;
+        }
+
+        List<int> possibleNumbers = new List<int>();
+        for (int i = 1; i <= 9; i++)
+        {
+            if (possible[i]) possibleNumbers.Add(i);
+        }
+
+        return possibleNumbers;
+    }
+
+    private bool IsHiddenSingle(int row, int column, int number)
+    {
+        // Проверка строки
+        for (int col = 0; col < 9; col++)
+        {
+            if (col != column && _FieldPrefabObjectDic[new Tuple<int, int>(row, col)].Number == 0)
+            {
+                var possibleNumbers = GetPossibleNumbers(row, col);
+                if (possibleNumbers.Contains(number)) return false;
+            }
+        }
+
+        // Проверка столбца
+        for (int r = 0; r < 9; r++)
+        {
+            if (r != row && _FieldPrefabObjectDic[new Tuple<int, int>(r, column)].Number == 0)
+            {
+                var possibleNumbers = GetPossibleNumbers(r, column);
+                if (possibleNumbers.Contains(number)) return false;
+            }
+        }
+
+        // Проверка блока 3x3
+        int startRow = (row / 3) * 3;
+        int startCol = (column / 3) * 3;
+        for (int r = 0; r < 3; r++)
+        {
+            for (int c = 0; c < 3; c++)
+            {
+                int checkRow = startRow + r;
+                int checkCol = startCol + c;
+                if (checkRow != row && checkCol != column && _FieldPrefabObjectDic[new Tuple<int, int>(checkRow, checkCol)].Number == 0)
+                {
+                    var possibleNumbers = GetPossibleNumbers(checkRow, checkCol);
+                    if (possibleNumbers.Contains(number)) return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    public void ClickOn_Hint()
+    {
+        if (_currentHoveredFieldPrefab != null && _currentHoveredFieldPrefab.IsChangeAble)
+        {
+            int row = _currentHoveredFieldPrefab.Row;
+            int column = _currentHoveredFieldPrefab.Column;
+
+            _currentHoveredFieldPrefab.SetNumber(_finalObject.Values[row, column]);
+            _currentHoveredFieldPrefab.IsChangeAble = false;
+            _currentHoveredFieldPrefab.ChangeTextToBlack();
+        }
+        CheckGameOver();
+    }
+
+    public void ClickOn_Finish()
+    {
+        UnhighlightSameNumberCellsYellow();
+        CheckGameOver();
+        for (int row = 0; row < 9; row++)
+        {
+            for (int column = 0; column < 9; column++)
+            {
+                FieldPrefabObject fieldObject = _FieldPrefabObjectDic[new Tuple<int, int>(row, column)];
+
+                if (fieldObject.IsChangeAble)
+                {
+                    
+                    if (_finalObject.Values[row, column] == fieldObject.Number)
+                    {
+                        fieldObject.ChangeColorToGreen();
+                    }
+                    else
+                    {
+                        fieldObject.ChangeColorToRed();
+                        GameOverLost();
+                        Continue.SetActive(true);
+                    }
+                }
+            }
+        }
+    }
+
+    public void ClickOn_Continue()
+    {
+        GameOverPanel.SetActive(false);
+        Continue.SetActive(false);
+
+        for (int row = 0; row < 9; row++)
+        {
+            for (int column = 0; column < 9; column++)
+            {
+                FieldPrefabObject fieldObject = _FieldPrefabObjectDic[new Tuple<int, int>(row, column)];
+
+                if (fieldObject.IsChangeAble && fieldObject.Number != _finalObject.Values[row, column])
+                {
+                    fieldObject.ChangeColorToWhite();
+                    fieldObject.ClearWrong();
+                }
+
+                if (fieldObject.IsChangeAble && fieldObject.Number == _finalObject.Values[row, column])
+                {
+                    fieldObject.ChangeColorToWhite();
+                }
+            }
+        }
+
+        GameOverLostPanel.SetActive(false);
+        Wall.SetActive(false);
+    }
+
+    public void ClickOnBackButton()
+    {
+        SceneManager.LoadScene("Main");
+    }
+
+    private SudokuObject _gameObject;
+    private SudokuObject _finalObject;
+
+    private void CreateSudokuObject()
+    {
+        SudokuGenerator.CreateSudokuObject(out SudokuObject finalObject, out SudokuObject gameObject);
+        _gameObject = gameObject;
+        _finalObject = finalObject;
+        for (int row = 0; row < 9; row++)
+        {
+            for (int column = 0; column < 9; column++)
+            {
+                var currentValue = _gameObject.Values[row, column];
+                if (currentValue != 0)
+                {
+                    FieldPrefabObject fieldObject = _FieldPrefabObjectDic[new Tuple<int, int>(row, column)];
+                    fieldObject.SetNumber(currentValue);
+                    fieldObject.IsChangeAble = false;
+                }
+            }
+        }
+    }
+
+    private bool IsInformationButtonActive = false;
+
+    public Sprite Pencil;
+    public Sprite PencilPressed;
+
+    public void ClickOn_InformationButton()
+    {
+        Debug.Log("Click on information button");
+        Image buttonImage = InformationButton.GetComponent<Image>();
+
+        if (IsInformationButtonActive)
+        {
+            IsInformationButtonActive = false;
+            buttonImage.sprite = Pencil;
+        }
+        else
+        {
+            IsInformationButtonActive = true;
+            buttonImage.sprite = PencilPressed;
+        }
+    }
+
+    private Dictionary<Tuple<int, int>, FieldPrefabObject> _FieldPrefabObjectDic = new Dictionary<Tuple<int, int>, FieldPrefabObject>();
+
+    private void HighlightSameNumberCells(int number)
+    {
+        foreach (var entry in _FieldPrefabObjectDic)
+        {
+            FieldPrefabObject fieldObject = entry.Value;
+            if (fieldObject.Number == number)
+            {
+                fieldObject.Highlight();
+            }
+            else
+            {
+                fieldObject.Unhighlight();
+            }
+        }
+    }
+
+    private void HighlightRelatedCells(FieldPrefabObject fieldObject)
+    {
+        int row = fieldObject.Row;
+        int column = fieldObject.Column;
+
+        // Подсветить строку
+        for (int col = 0; col < 9; col++)
+        {
+            _FieldPrefabObjectDic[new Tuple<int, int>(row, col)].Highlight();
+        }
+
+        // Подсветить столбец
+        for (int r = 0; r < 9; r++)
+        {
+            _FieldPrefabObjectDic[new Tuple<int, int>(r, column)].Highlight();
+        }
+
+        // Подсветить блок 3x3
+        int startRow = (row / 3) * 3;
+        int startCol = (column / 3) * 3;
+        for (int r = 0; r < 3; r++)
+        {
+            for (int c = 0; c < 3; c++)
+            {
+                _FieldPrefabObjectDic[new Tuple<int, int>(startRow + r, startCol + c)].Highlight();
+            }
+        }
+    }
+
+
+
+    private void CreateFieldPrefabs()
+    {
+        for (int row = 0; row < 9; row++)
+        {
+            for (int column = 0; column < 9; column++)
+            {
+                GameObject instance = GameObject.Instantiate(FieldPrefab, SudokuFieldPanel.transform);
+
+                FieldPrefabObject fieldPrefabObject = new FieldPrefabObject(instance, row, column);
+                _FieldPrefabObjectDic.Add(new Tuple<int, int>(row, column), fieldPrefabObject);
+
+                instance.GetComponent<Button>().onClick.AddListener(() => OnClickFieldPrefab(fieldPrefabObject));
+            }
+        }
+    }
+
+    private void CreateControlPrefabs()
+    {
+        for (int i = 1; i < 10; i++)
+        {
+            GameObject instance = GameObject.Instantiate(ControlPrefab, ControlPanel.transform);
+            instance.GetComponentInChildren<Text>().text = i.ToString();
+
+            ControlPrefabObject controlPrefabObject = new ControlPrefabObject();
+            controlPrefabObject.Number = i;
+
+            instance.GetComponent<Button>().onClick.AddListener(() => ClickOn_ControlPrefab(controlPrefabObject));
+        }
+    }
+
+    private void ClickOn_ControlPrefab(ControlPrefabObject controlPrefabObject)
+    {
+        Debug.Log($"Click on control prefab: {controlPrefabObject.Number}");
+
+        // Снять желтую подсветку с предыдущих ячеек
+        UnhighlightSameNumberCellsYellow();
+
+        if (_currentHoveredFieldPrefab != null && _currentHoveredFieldPrefab.IsChangeAble)
+        {
+            if (IsInformationButtonActive)
+            {
+                _currentHoveredFieldPrefab.SetSmallNumber(controlPrefabObject.Number);
+            }
+            else
+            {
+                _currentHoveredFieldPrefab.SetNumber(controlPrefabObject.Number);
+                if (_currentHoveredFieldPrefab.UserChanged)
+                {
+                    _currentHoveredFieldPrefab.ChangeTextToBlue();
+                }
+            }
+
+            // Подсветить текущую ячейку синим цветом
+            _currentHoveredFieldPrefab.HighlightBlue();
+        }
+
+        // Подсветить все ячейки с тем же номером желтым цветом
+        HighlightSameNumberCellsYellow(controlPrefabObject.Number, _currentHoveredFieldPrefab);
+    }
+
+
+
+
+
+
+    private FieldPrefabObject _currentHoveredFieldPrefab;
+
+    private void OnClickFieldPrefab(FieldPrefabObject fieldPrefabObject)
+    {
+        Debug.Log($"Clicked on Prefab Row: {fieldPrefabObject.Row}, Column: {fieldPrefabObject.Column}");
+
+        // Снять желтую подсветку с предыдущих ячеек
+        UnhighlightSameNumberCellsYellow();
+
+        if (_currentHoveredFieldPrefab != null)
+        {
+            UnhighlightCells(_currentHoveredFieldPrefab);
+            _currentHoveredFieldPrefab.UnSetHoverMode();
+        }
+        _currentHoveredFieldPrefab = fieldPrefabObject;
+        fieldPrefabObject.SetHoverMode();
+
+        // Подсветить связанные ячейки
+        HighlightCells(fieldPrefabObject);
+
+        // Если ячейка содержит число, подсветить все ячейки с тем же числом желтым цветом
+        if (fieldPrefabObject.Number != 0)
+        {
+            HighlightSameNumberCellsYellow(fieldPrefabObject.Number, fieldPrefabObject);
+            fieldPrefabObject.HighlightBlue(); // Подсветить текущую ячейку синим цветом
+        }
+    }
+
+
+
+
+
+
+
+    private void HighlightSameNumberCellsYellow(int number, FieldPrefabObject currentField)
+    {
+        foreach (var entry in _FieldPrefabObjectDic)
+        {
+            FieldPrefabObject fieldObject = entry.Value;
+            if (fieldObject.Number == number && fieldObject != currentField)
+            {
+                fieldObject.HighlightYellow();
+            }
+        }
+    }
+
+
+
+    private void UnhighlightSameNumberCellsYellow()
+    {
+        foreach (var entry in _FieldPrefabObjectDic)
+        {
+            FieldPrefabObject fieldObject = entry.Value;
+            fieldObject.UnhighlightYellow();
+        }
+    }
+
+
+
+
+    private void HighlightCells(FieldPrefabObject fieldObject)
+    {
+        int row = fieldObject.Row;
+        int column = fieldObject.Column;
+
+        // Подсветить строку
+        for (int col = 0; col < 9; col++)
+        {
+            _FieldPrefabObjectDic[new Tuple<int, int>(row, col)].Highlight();
+        }
+
+        // Подсветить столбец
+        for (int r = 0; r < 9; r++)
+        {
+            _FieldPrefabObjectDic[new Tuple<int, int>(r, column)].Highlight();
+        }
+
+        // Подсветить блок 3x3
+        int startRow = (row / 3) * 3;
+        int startCol = (column / 3) * 3;
+        for (int r = 0; r < 3; r++)
+        {
+            for (int c = 0; c < 3; c++)
+            {
+                _FieldPrefabObjectDic[new Tuple<int, int>(startRow + r, startCol + c)].Highlight();
+            }
+        }
+
+        // Подсветить текущую ячейку
+        fieldObject.SetHoverMode();
+    }
+
+
+    private void UnhighlightCells(FieldPrefabObject fieldObject)
+    {
+        int row = fieldObject.Row;
+        int column = fieldObject.Column;
+
+        // Снять подсветку строки
+        for (int col = 0; col < 9; col++)
+        {
+            _FieldPrefabObjectDic[new Tuple<int, int>(row, col)].Unhighlight();
+        }
+
+        // Снять подсветку столбца
+        for (int r = 0; r < 9; r++)
+        {
+            _FieldPrefabObjectDic[new Tuple<int, int>(r, column)].Unhighlight();
+        }
+
+        // Снять подсветку блока 3x3
+        int startRow = (row / 3) * 3;
+        int startCol = (column / 3) * 3;
+        for (int r = 0; r < 3; r++)
+        {
+            for (int c = 0; c < 3; c++)
+            {
+                _FieldPrefabObjectDic[new Tuple<int, int>(startRow + r, startCol + c)].Unhighlight();
+            }
+        }
+
+        // Сброс цвета текущей ячейки
+        fieldObject.UnSetHoverMode();
+    }
+
+
+
+
+
+    private void CheckGameOver()
+    {
+        UnhighlightSameNumberCellsYellow();
+        for (int row = 0; row < 9; row++)
+        {
+            for (int column = 0; column < 9; column++)
+            {
+                FieldPrefabObject fieldObject = _FieldPrefabObjectDic[new Tuple<int, int>(row, column)];
+                if (fieldObject.Number != _finalObject.Values[row, column])
+                {
+                    return;
+                }
+            }
+        }
+        GameOver();
+    }
+
+    private void GameOver()
+    {
+        Wall.SetActive(true);
+        GameOverPanel.SetActive(true);
+    }
+
+    private void GameOverLost()
+    {
+        Wall.SetActive(true);
+        GameOverLostPanel.SetActive(true);
+    }
+}
