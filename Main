@@ -1,0 +1,31 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
+
+
+public class Main : MonoBehaviour
+{
+    public Button EasyButton;
+
+    public Button MiddleButton;
+    
+    public Button HardButton;
+
+    public void ClickOnEasy()
+    {
+        SceneManager.LoadScene("Game");
+        GameSettings.EasyMiddleHard_Number = 1;
+    }
+    public void ClickOnMiddle()
+    {
+        SceneManager.LoadScene("Game");
+        GameSettings.EasyMiddleHard_Number = 2;
+    }
+    public void ClickOnHard()
+    {
+        SceneManager.LoadScene("Game");
+        GameSettings.EasyMiddleHard_Number = 3;
+    }
+}
